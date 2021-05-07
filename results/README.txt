@@ -1,0 +1,1 @@
+Ranked maps will be uploaded separately to a repository with DOI.
