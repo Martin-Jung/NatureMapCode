@@ -155,23 +155,27 @@ if(!dir.exists(out_dir)) dir.create(out_dir)
 
 # Biodiversity value(s)
 gc(); raster::removeTmpFiles(.2)
-# Load raster
+# Load individual solutions (raster) from the representative sets
 ras2 <- makeStack(ll.tif)
+# Reclassifies all PUs in the stack to have 0 instead of NA so that 
+# averaging the selected proportion takes account of non-selected cells
 ras2 <- reclassify(ras2, cbind(NA, NA, 0), right = FALSE)
 
-# Average stack
+# Average stack with all proportions
 mcp_ilp_hier <- mean(ras2, na.rm = T) # Mean! 
 # Mask with global land area mask
 mcp_ilp_hier <- raster::mask(mcp_ilp_hier, land.mask)
 
-mcp_ilp_hier_norm <- mcp_ilp_hier * 100 # precision of input layers
-# -- #
-# Remove 0 fractional estimates
+# Multiply with 100 (precision of input layers) for the ranking
+mcp_ilp_hier_norm <- mcp_ilp_hier * 100 
+# Remove 0 fractional estimates so that equal-width bins are constructed correctly
 mcp_ilp_hier_norm[mcp_ilp_hier_norm==0] <- NA
-# Convert to ranks and invert
+# Convert to ranks and then bin (equal-width) averages across PUs. Ocassional ties are resolved randomly
+# The resulting ranked map is then inverted so that priority ranks go from 1 to 100
 mcp_ilp_hier_norm <- abs( raster_to_ranks(mcp_ilp_hier_norm,n = 100,plot = FALSE) - 100 )
+# Add least important areas as 100 so that proportions match again. This is necessary for prioritization variants where not all PUs have value in reaching the targets
+mcp_ilp_hier_norm[is.na(mcp_ilp_hier_norm)] <- 100 
 # Mask again with global land area mask 
-mcp_ilp_hier_norm[is.na(mcp_ilp_hier_norm)] <- 100 # Add lest important areas as 100 so that proportions match again
 mcp_ilp_hier_norm <-  raster::mask(mcp_ilp_hier_norm,land.mask)
 NAvalue(mcp_ilp_hier_norm) <- -9999
 
