@@ -172,12 +172,19 @@ mcp_ilp_hier_norm <- mcp_ilp_hier * 100
 mcp_ilp_hier_norm[mcp_ilp_hier_norm==0] <- NA
 # Convert to ranks and then bin (equal-width) averages across PUs. Ocassional ties are resolved randomly
 # The resulting ranked map is then inverted so that priority ranks go from 1 to 100
-mcp_ilp_hier_norm <- abs( raster_to_ranks(mcp_ilp_hier_norm,n = 100,plot = FALSE) - 100 )
+mcp_ilp_hier_norm <- abs( raster_to_ranks(mcp_ilp_hier_norm,
+                                          globalgrid = globalgrid,
+                                          method = 'area',n = 101,plot = T) # - 100 
+)
+# land30 <- mcp_ilp_hier_norm
+# land30[land30 > 30] <- NA; land30[land30 > 0] <- 1; (cellStats(land30 * globalgrid,'sum') - (cellStats(globalgrid, 'sum') * .3) )/(cellStats(globalgrid, 'sum') * .3)
 # Add least important areas as 100 so that proportions match again. This is necessary for prioritization variants where not all PUs have value in reaching the targets
 mcp_ilp_hier_norm[is.na(mcp_ilp_hier_norm)] <- 100 
 # Mask again with global land area mask 
-mcp_ilp_hier_norm <-  raster::mask(mcp_ilp_hier_norm,land.mask)
+mcp_ilp_hier_norm <-  raster::mask(mcp_ilp_hier_norm, land.mask)
+assertthat::assert_that(cellStats(mcp_ilp_hier_norm,min)==1, cellStats(mcp_ilp_hier_norm,max)==100)
 NAvalue(mcp_ilp_hier_norm) <- -9999
+proj4string(mcp_ilp_hier_norm) <- proj4string(globalgrid)
 
 # Test plot
 plot(mcp_ilp_hier_norm,col = scico::scico(10,palette = 'roma'))

@@ -1,11 +1,9 @@
-# Broad functions that most scripts depend on
+# Broad functions that most script depend on
 myLog <- function(...) {
   cat(paste0("[Processing] ", Sys.time(), " | ", ..., "\n"))
 }
-# Inverse not in function
 `%notin%` = function(a, b){!(a %in% b)}
 
-# Normalize a value to a range of 0-1
 normalize <- function(x)
 {
   if (length(x) == 1) 
@@ -16,7 +14,6 @@ normalize <- function(x)
     return(x)
   else return(y)
 }
-
 #' Show difference between two vectors
 #' 
 #' returns a list of the elements of x that are not in y 
@@ -55,7 +52,7 @@ makeStack <- function(files, pol = NULL){
 }
 
 #### Saving outputs ####
-# Save output as compressed geotiff file
+# Save output
 writeGeoTiff <- function(file, fname,dt = "INT2S"){
   require(assertthat)
   if(!has_extension(fname,"tif")) fname <- paste0(fname,".tif")
@@ -93,6 +90,9 @@ DegreeCellAreaKM <- function(lat, height, width) {
   # lat - the latitudinal centre of the cell
   # height, width - the size of the grid cell in degrees
   
+  # TODO Unit test
+  # TODO Reference for this method
+  
   radians <- function(theta) theta*pi/180.0
   
   # Convert the latitude into radians
@@ -115,7 +115,7 @@ DegreeCellAreaKM <- function(lat, height, width) {
 }
 
 #### Template creation ####
-# Empty raster function based on a template
+# Empty raster function
 emptyraster <- function(x, ...) { # add name, filename, 
   
   emptyraster <- raster(nrows=nrow(x), ncols=ncol(x),
@@ -126,13 +126,14 @@ emptyraster <- function(x, ...) { # add name, filename,
 }
 
 #' Unify extent of a rasterstack
-#' From Icarus package
+#' 
 #' @author Martin Jung
 #' @param rList a list of raster objects
 
 #' @return returns the unified total extent
 #' @export
 #' 
+
 max_extent <- function(rlist){
   # given list of rasters
   # returns union of extent
@@ -194,11 +195,6 @@ alignRasters <- function(data, template, method = "bilinear",func = mean,cl = T,
   return(data)
 }
 
-# Splits a raster into several subtiles to be processed individually
-#' @param infile The raster file
-#' @param outpath the output path
-#' @param parts The number of individual parts used for processing
-#' @author Martin Jung
 split_raster <- function(infile,outpath,parts=3) {
   ## parts = division applied to each side of raster, i.e. parts = 2 gives 4 tiles, 3 gives 9, etc.
   lib <- c("gdalUtils","parallel","reshape2")
@@ -293,6 +289,8 @@ projectMollWeide <- function(image, output = "test.tif",s.crs = "+proj=moll +lon
 
 #' Aggregate a given raster by rank
 #' @param ras Calculate the shortfall for each species
+#' @param globalgrid A global raster layer depicting the cell area
+#' @param method Whether normal binning or binning by secondary layer is to be conducted
 #' @param ties.method Default:random
 #' @param n The number of breaks
 #' @param plot If true, plot the proportions of each cell
@@ -301,29 +299,53 @@ projectMollWeide <- function(image, output = "test.tif",s.crs = "+proj=moll +lon
 #' @export
 #' @author Martin Jung
 # New ranked aggregation
-raster_to_ranks <- function(ras,ties.method = 'random', n = 101,plot = TRUE){
+raster_to_ranks <- function(ras, globalgrid = NULL, method = 'area', ties.method = 'random', n = 101,plot = TRUE){
   assert_that(
     cellStats(ras,'max')>0
   )
-  # Make a copy of an empty raster
-  mcp_copy <- emptyraster(ras)
-  # Convert to data.frame
-  df <- as.data.frame(ras)
-  # Assign ranks to all values
-  df$neworder[!is.na(df[,1])] <- rank(df[!is.na(df[,1]),1],ties.method = ties.method)
-  df$newcut <- ggplot2::cut_interval(df$neworder, n = n)
-  mcp_copy[] <- df$newcut
-  # Subtract 1 from the number of bins to that ranges goes from 0 to 100
-  mcp_copy <- mcp_copy - 1
-  if(plot){
-    # Check that equal number of cells are included in the ranking
-    x = cut(mcp_copy[],seq(0,100,10),include.lowest=F)
-    #x = cut_number(mcp_ilp_hier[],n = 10)
-    barplot(table(x),main = 'Binned by 10%',ylab = 'Number of grid cells',xlab = 'Bins')
+  if(method == 'area'){
+    # Make a copy of an empty raster
+    mcp_copy <- emptyraster(ras)
+    # Convert to data.frame
+    df <- as.data.frame(stack(ras, globalgrid))
+    names(df) <- c('layer','area')
+    df <- tibble::rowid_to_column(df,'cellid')
+    # Then rank and sort by highest value
+    df$layer[!is.na(df[,'layer'])] <- rank(df[!is.na(df[,'layer']),'layer'],ties.method = ties.method)
+    df <- df[order(df$layer,na.last = TRUE,decreasing = TRUE),]
+    df <- tidyr::drop_na(df,layer)
+    # Now add a column with the cumulative sum of area
+    df$cumsum <- cumsum(df$area)
+    df$newcut <- cut(df$cumsum, seq(0, cellStats(globalgrid,sum),length.out = n))
+    mcp_copy[df$cellid] <- df$newcut
+    
+    if(plot){
+      x = cut(mcp_copy[],seq(0,100,10),include.lowest=F)
+      #x = cut_number(mcp_ilp_hier[],n = 10)
+      barplot(table(x),main = 'Binned by 10%',ylab = 'Number of grid cells',xlab = 'Bins')
+      plot(mcp_copy,col = scico::scico(10,palette = 'roma'))
+    }
+    return(mcp_copy)
+    
+  } else {
+    # Make a copy of an empty raster
+    mcp_copy <- emptyraster(ras)
+    # Convert to data.frame
+    df <- as.data.frame(ras)
+    # Assign ranks to all values
+    df$neworder[!is.na(df[,1])] <- rank(df[!is.na(df[,1]),1],ties.method = ties.method)
+    df$newcut <- ggplot2::cut_interval(df$neworder, n = n)
+    mcp_copy[] <- df$newcut
+    # Subtract 1 from the number of bins to that ranges goes from 0 to 100
+    mcp_copy <- mcp_copy - 1
+    if(plot){
+      x = cut(mcp_copy[],seq(0,100,10),include.lowest=F)
+      #x = cut_number(mcp_ilp_hier[],n = 10)
+      barplot(table(x),main = 'Binned by 10%',ylab = 'Number of grid cells',xlab = 'Bins')
+      plot(abs(mcp_copy - 100),col = scico::scico(10,palette = 'roma'))
+    }
+    return(mcp_copy)
   }
-  return(mcp_copy)
-  # These should be all identical
-  #round((table(df$newcut) / length(unique(df$neworder))),2)
 }
 
 
@@ -331,7 +353,7 @@ raster_to_ranks <- function(ras,ties.method = 'random', n = 101,plot = TRUE){
 #### PrioritizeR helper functions ####
 
 # Calculate species-specific relative targets 
-# As taken from Mogg et al.
+# Suggest by Mogg et al.
 # Resolution being a number in kilometer units
 calc_targets <- function(rij_data,resolution) {
   # Resolution is in km!
@@ -364,7 +386,7 @@ calc_targets2 <- function(rij_data, multiplier = 1) {
     ungroup()
 }
 
-# Create a output raster from a prioritizR solution
+# Create a output raster
 createOutput <- function(pu_id_raster, r, scol = 'solution_1' ){
   require(assertthat)
   assert_that(has_name(r,scol))
@@ -385,7 +407,6 @@ createOutput <- function(pu_id_raster, r, scol = 'solution_1' ){
 # Alternative to the feature_representation script
 # Necessary as the prioritizeR version creates a M x N matrix
 # that is too big for memory (requires ~480GB) for Matrix multiplication
-# Here parallizing the process
 # #id / cost / protected / solution_1
 feature_representation2 <- function(x, solution, cores = 1) {
   if(cores>1){ require(doParallel)}
@@ -565,3 +586,5 @@ calc_shortfall <- function(repr_file, by_species = TRUE){
   }
   return(rr)
 }
+
+
